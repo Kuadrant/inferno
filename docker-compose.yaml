@@ -1,0 +1,46 @@
+version: '3'
+
+services:
+  inferno_envoy:
+    image: istio/proxyv2:1.15.0
+    container_name: inferno_envoy
+    entrypoint: /usr/local/bin/envoy
+    command: [
+      "--config-path", "/etc/envoy/envoy.yaml",
+      "--log-level", "${ENVOY_LOG_LEVEL:-info}",
+      "--service-cluster", "envoy-front",
+      "--service-node", "envoy-front"
+    ]
+    ports:
+      - 10000:10000
+      - 15000:15000
+    networks:
+      - inferno-network
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml
+
+  inferno_ext_proc:
+    container_name: inferno_ext_proc
+    build:
+      context: ./
+    environment:
+      # Semantic Cache Settings
+      EMBEDDING_MODEL_SERVER: "${EMBEDDING_MODEL_SERVER:-http://192.168.97.4/v1/models/embedding-model:predict}"
+      EMBEDDING_MODEL_HOST: "${EMBEDDING_MODEL_HOST:-embedding-model-default.example.com}"
+      SIMILARITY_THRESHOLD: "${SIMILARITY_THRESHOLD:-0.75}"
+      
+      # Prompt Guard Settings
+      GUARDIAN_API_KEY: "${GUARDIAN_API_KEY:-test}"
+      GUARDIAN_URL: "${GUARDIAN_URL:-http://example.com}"
+      DISABLE_PROMPT_RISK_CHECK: "${DISABLE_PROMPT_RISK_CHECK:-no}"
+      DISABLE_RESPONSE_RISK_CHECK: "${DISABLE_RESPONSE_RISK_CHECK:-no}"
+    expose:
+      - 50051 # semantic-cache
+      - 50052 # prompt-guard
+      - 50053 # token-usage-metrics
+    networks:
+      - inferno-network
+
+networks:
+  inferno-network:
+    driver: bridge
