@@ -17,7 +17,9 @@ import (
 	"github.com/kuadrant/inferno/internal/ext_proc"
 )
 
-type HealthServer struct{}
+type HealthServer struct {
+	grpc_health_v1.UnimplementedHealthServer
+}
 
 func (h *HealthServer) Check(ctx context.Context, in *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
 	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
