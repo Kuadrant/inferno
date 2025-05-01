@@ -50,6 +50,47 @@ The following environment variables can be configured:
 
 ## Sample Requests
 
+### OpenAI proxied requests
+
+The demo setup with `docker compose` configures Envoy to proxy chat completion and embeddings requests to OpenAI's API, as well as our sample filter chain with the `ext_proc` services we provision and run. Ensure you have a valid OpenAI API key exported as an environment variable:
+
+```bash
+export OPENAI_API_KEY=xxx
+```
+
+#### Chat completion
+
+```bash
+curl "http://localhost:10000/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+      "model": "gpt-4.1",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a one-sentence bedtime story about a unicorn."
+        }
+      ]
+  }'
+```
+
+#### Embeddings
+
+```bash
+curl http://localhost:10000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "input": "Your text string goes here",
+    "model": "text-embedding-3-small"
+  }'
+```
+
+### kServe Huggingface Server
+
+TODO
+
 ### Semantic Cache
 
 ```bash
