@@ -10,9 +10,8 @@ env:
   IMG_TAGS: ${{ github.sha }} ${{ github.ref_name }}
   IMG_REGISTRY_HOST: quay.io
   IMG_REGISTRY_ORG: kuadrant
-  IMG_REGISTRY_REPO: inferno
   MAIN_BRANCH_NAME: main
-  IMAGE_NAME: kuadrant-inferno
+  IMAGE_NAME: inferno
 
 jobs:
   build:
