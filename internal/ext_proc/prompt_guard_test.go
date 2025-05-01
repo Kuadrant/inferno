@@ -1,9 +1,11 @@
 package ext_proc
 
 import (
-	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"reflect"
 	"testing"
+
+	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/sashabaranov/go-openai"
 )
 
 func TestNewPromptGuard(t *testing.T) {
