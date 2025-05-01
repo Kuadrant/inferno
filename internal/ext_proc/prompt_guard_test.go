@@ -1,99 +1,133 @@
-package ext_proc
+package ext_proc_test
 
 import (
-	"reflect"
-	"testing"
+	"context"
+	"errors"
 
-	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/sashabaranov/go-openai"
+
+	"github.com/kuadrant/inferno/internal/ext_proc"
 )
 
-func TestNewPromptGuard(t *testing.T) {
-	tests := []struct {
-		name string
-		want *PromptGuard
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := NewPromptGuard(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewPromptGuard() = %v, want %v", got, tt.want)
-			}
-		})
-	}
+// mockOpenAIClient implements the OpenAIChatCompleter interface for testing
+type mockOpenAIClient struct {
+	MockResponse    openai.ChatCompletionResponse
+	MockError       error
+	CapturedRequest openai.ChatCompletionRequest
 }
 
-func TestPromptGuard_Process(t *testing.T) {
-	type fields struct {
-		apiKey      string
-		baseURL     string
-		fullBaseURL string
-		modelName   string
-		riskyToken  string
-		client      *openai.Client
+// CreateChatCompletion is the mocked method
+func (m *mockOpenAIClient) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	m.CapturedRequest = req
+	if m.MockError != nil {
+		return openai.ChatCompletionResponse{}, m.MockError
 	}
-	type args struct {
-		srv ext_procv3.ExternalProcessor_ProcessServer
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pg := &PromptGuard{
-				apiKey:      tt.fields.apiKey,
-				baseURL:     tt.fields.baseURL,
-				fullBaseURL: tt.fields.fullBaseURL,
-				modelName:   tt.fields.modelName,
-				riskyToken:  tt.fields.riskyToken,
-				client:      tt.fields.client,
-			}
-			if err := pg.Process(tt.args.srv); (err != nil) != tt.wantErr {
-				t.Errorf("Process() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
+	return m.MockResponse, nil
 }
 
-func TestPromptGuard_checkRisk(t *testing.T) {
-	type fields struct {
-		apiKey      string
-		baseURL     string
-		fullBaseURL string
-		modelName   string
-		riskyToken  string
-		client      *openai.Client
-	}
-	type args struct {
-		userQuery string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   bool
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pg := &PromptGuard{
-				apiKey:      tt.fields.apiKey,
-				baseURL:     tt.fields.baseURL,
-				fullBaseURL: tt.fields.fullBaseURL,
-				modelName:   tt.fields.modelName,
-				riskyToken:  tt.fields.riskyToken,
-				client:      tt.fields.client,
-			}
-			if got := pg.checkRisk(tt.args.userQuery); got != tt.want {
-				t.Errorf("checkRisk() = %v, want %v", got, tt.want)
-			}
+var _ = Describe("PromptGuard CheckRisk", func() {
+	var (
+		pg         *ext_proc.PromptGuard
+		mockClient *mockOpenAIClient
+		userQuery  string
+	)
+
+	BeforeEach(func() {
+		mockClient = &mockOpenAIClient{}
+		pg = ext_proc.NewPromptGuard(mockClient)
+		userQuery = "Is this query risky?"
+	})
+
+	riskyToken := "Yes"
+	ctx := context.Background()
+
+	// Test the constructor logic when NO client is passed AND no env vars
+	Context("when the client is nil (via constructor)", func() {
+		BeforeEach(func() {
+			pg = ext_proc.NewPromptGuard(nil)
 		})
-	}
-}
+		It("should return false from checkRisk", func() {
+			Expect(pg.CheckRisk(ctx, userQuery)).To(BeFalse())
+		})
+	})
+
+	Context("when the client is initialized (mocked)", func() {
+
+		Context("and the API call fails", func() {
+			BeforeEach(func() {
+				mockClient.MockError = errors.New("API unavailable")
+			})
+
+			It("should return false", func() {
+				Expect(pg.CheckRisk(ctx, userQuery)).To(BeFalse())
+			})
+		})
+
+		Context("and the API call succeeds", func() {
+			Context("and the response indicates risk", func() {
+				BeforeEach(func() {
+					mockClient.MockResponse = openai.ChatCompletionResponse{
+						Choices: []openai.ChatCompletionChoice{
+							{Message: openai.ChatCompletionMessage{Content: " " + riskyToken + " "}},
+						},
+					}
+				})
+				It("should return true", func() {
+					Expect(pg.CheckRisk(ctx, userQuery)).To(BeTrue())
+				})
+			})
+
+			Context("and the response indicates risk (case-insensitive)", func() {
+				BeforeEach(func() {
+					mockClient.MockResponse = openai.ChatCompletionResponse{
+						Choices: []openai.ChatCompletionChoice{
+							{Message: openai.ChatCompletionMessage{Content: " yEs \n"}},
+						},
+					}
+				})
+				It("should return true", func() {
+					Expect(pg.CheckRisk(ctx, userQuery)).To(BeTrue())
+				})
+			})
+
+			Context("and the response indicates safe", func() {
+				BeforeEach(func() {
+					mockClient.MockResponse = openai.ChatCompletionResponse{
+						Choices: []openai.ChatCompletionChoice{
+							{Message: openai.ChatCompletionMessage{Content: "No"}},
+						},
+					}
+				})
+				It("should return false", func() {
+					Expect(pg.CheckRisk(ctx, userQuery)).To(BeFalse())
+				})
+			})
+
+			Context("and the response has empty content", func() {
+				BeforeEach(func() {
+					mockClient.MockResponse = openai.ChatCompletionResponse{
+						Choices: []openai.ChatCompletionChoice{
+							{Message: openai.ChatCompletionMessage{Content: ""}},
+						},
+					}
+				})
+				It("should return false", func() {
+					Expect(pg.CheckRisk(ctx, userQuery)).To(BeFalse())
+				})
+			})
+
+			Context("and the response has no choices", func() {
+				BeforeEach(func() {
+					mockClient.MockResponse = openai.ChatCompletionResponse{
+						Choices: []openai.ChatCompletionChoice{},
+					}
+				})
+				It("should return false", func() {
+					Expect(pg.CheckRisk(ctx, userQuery)).To(BeFalse())
+				})
+			})
+		})
+	})
+})
