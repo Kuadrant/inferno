@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	corePb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	filterPb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
@@ -59,7 +60,7 @@ func NewPromptGuard() *PromptGuard {
 	}
 }
 
-func (pg *PromptGuard) checkRisk(userQuery string) bool {
+func (pg *PromptGuard) checkRisk(ctx context.Context, userQuery string) bool {
 	if pg.client == nil {
 		log.Println("[PromptGuard] Client not initialized, skipping risk check")
 		return false
@@ -68,7 +69,7 @@ func (pg *PromptGuard) checkRisk(userQuery string) bool {
 	log.Printf("👮‍♀️ [Guardian] Checking risk on: '%s'\n", userQuery)
 	log.Printf("→ Sending to: %s/chat/completions with model '%s'\n", pg.fullBaseURL, pg.modelName)
 
-	resp, err := pg.client.CreateChatCompletion(context.Background(), openai.ChatCompletionRequest{
+	resp, err := pg.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: pg.modelName,
 		Messages: []openai.ChatCompletionMessage{
 			{
@@ -80,6 +81,10 @@ func (pg *PromptGuard) checkRisk(userQuery string) bool {
 		MaxTokens:   50,
 	})
 	if err != nil {
+		if status.Code(err) == codes.Canceled {
+			log.Println("[PromptGuard] Risk check canceled by context, returning safe")
+			return false
+		}
 		log.Printf("[PromptGuard] Risk model call failed: %v", err)
 		return false
 	}
@@ -145,7 +150,10 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 					},
 				}
 			} else {
-				if pg.checkRisk(prompt) {
+				// use independent timeout so we don't get canceled by srv.Context
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if pg.checkRisk(ctx, prompt) {
 					log.Println("[PromptGuard] Risky prompt detected, returning 403")
 
 					resp = &extProcPb.ProcessingResponse{
@@ -226,7 +234,10 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 					},
 				}
 			} else {
-				if pg.checkRisk(generated) {
+				// use independent timeout so we don't get canceled by srv.Context
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				if pg.checkRisk(ctx, generated) {
 					log.Println("[PromptGuard] Risky LLM output detected, blocking response")
 					resp = &extProcPb.ProcessingResponse{
 						Response: &extProcPb.ProcessingResponse_ImmediateResponse{
@@ -265,6 +276,10 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 
 		if err := srv.Send(resp); err != nil {
 			log.Printf("[PromptGuard] Error sending response: %v", err)
+			if status.Code(err) == codes.Canceled {
+				log.Println("[PromptGuard] Stream canceled, exiting cleanly")
+				return nil
+			}
 			return status.Errorf(codes.Unknown, "cannot send stream response: %v", err)
 		}
 	}

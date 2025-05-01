@@ -58,6 +58,19 @@ The demo setup with `docker compose` configures Envoy to proxy chat completion a
 export OPENAI_API_KEY=xxx
 ```
 
+
+#### Completion
+
+```bash
+curl "http://localhost:10000/v1/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+      "model": "gpt-3.5-turbo-instruct",
+      "prompt": "Write a one-sentence bedtime story about Kubernetes."
+  }'
+```
+
 #### Chat completion
 
 ```bash
@@ -69,7 +82,7 @@ curl "http://localhost:10000/v1/chat/completions" \
       "messages": [
         {
           "role": "user",
-          "content": "Write a one-sentence bedtime story about a unicorn."
+          "content": "Write a one-sentence bedtime story about Kubernetes."
         }
       ]
   }'
@@ -108,3 +121,10 @@ curl -v
 ```bash
 curl -v 
 ```
+
+
+
+
+
+  # TODO completions vs chat-completions
+

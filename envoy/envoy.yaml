@@ -29,6 +29,16 @@ static_resources:
                       domains: ["*"]
                       routes:
                         - match:
+                            prefix: "/v1/completions"
+                          route:
+                            cluster: openai_api
+                            timeout: 30s
+                            host_rewrite_literal: "api.openai.com"
+                          # typed_per_filter_config:
+                          #   envoy.filters.http.ext_proc:
+                          #     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
+                          #     disabled: true
+                        - match:
                             prefix: "/v1/chat/completions"
                           route:
                             cluster: openai_api
@@ -66,6 +76,7 @@ static_resources:
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
                       failure_mode_allow: false
+                      message_timeout: 2s
                       processing_mode:
                         request_header_mode: SEND
                         request_body_mode: BUFFERED
@@ -75,6 +86,7 @@ static_resources:
                         google_grpc:
                           target_uri: inferno_ext_proc:50052
                           stat_prefix: prompt-guard-ext-proc
+                        timeout: 5s
                   - name: envoy.filters.http.ext_proc
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
@@ -93,20 +105,20 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
   clusters:
-    - name: ext-proc
-      connect_timeout: 5s
-      type: STRICT_DNS
-      lb_policy: ROUND_ROBIN
-      http2_protocol_options: {}
-      load_assignment:
-        cluster_name: ext-proc
-        endpoints:
-          - lb_endpoints:
-              - endpoint:
-                  address:
-                    socket_address:
-                      address: inferno_ext_proc
-                      port_value: 50051
+    # - name: ext-proc
+    #   connect_timeout: 5s
+    #   type: STRICT_DNS
+    #   lb_policy: ROUND_ROBIN
+    #   http2_protocol_options: {}
+    #   load_assignment:
+    #     cluster_name: ext-proc
+    #     endpoints:
+    #       - lb_endpoints:
+    #           - endpoint:
+    #               address:
+    #                 socket_address:
+    #                   address: inferno_ext_proc
+    #                   port_value: 50051
     - name: openai_api
       connect_timeout: 5s
       type: STRICT_DNS
