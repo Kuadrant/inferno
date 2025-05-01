@@ -122,8 +122,14 @@ curl -v
 curl -v 
 ```
 
+## Testing
 
+To run the unit tests locally, use the following command:
 
+```bash
+make test
+````
+**Note:** The tests are only starting to be written, and are not comprehensive yet. We will be adding more tests in the future.
 
 
   # TODO completions vs chat-completions

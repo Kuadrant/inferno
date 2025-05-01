@@ -18,16 +18,21 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// OpenAIChatCompleter defines the interface needed by PromptGuard
+type OpenAIChatCompleter interface {
+	CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+}
+
 type PromptGuard struct {
 	apiKey      string
 	baseURL     string
 	fullBaseURL string
 	modelName   string
 	riskyToken  string
-	client      *openai.Client
+	client      OpenAIChatCompleter
 }
 
-func NewPromptGuard() *PromptGuard {
+func NewPromptGuard(client OpenAIChatCompleter) *PromptGuard {
 	apiKey := os.Getenv("GUARDIAN_API_KEY")
 	baseURL := os.Getenv("GUARDIAN_URL")
 	fullBaseURL := baseURL + "/openai/v1"
@@ -41,8 +46,7 @@ func NewPromptGuard() *PromptGuard {
 		log.Println("[PromptGuard] Warning: GUARDIAN_URL env var is not set")
 	}
 
-	var client *openai.Client
-	if apiKey != "" && baseURL != "" {
+	if client == nil && apiKey != "" && baseURL != "" {
 		cfg := openai.DefaultConfig(apiKey)
 		cfg.BaseURL = fullBaseURL
 		c := openai.NewClientWithConfig(cfg)
@@ -60,7 +64,7 @@ func NewPromptGuard() *PromptGuard {
 	}
 }
 
-func (pg *PromptGuard) checkRisk(ctx context.Context, userQuery string) bool {
+func (pg *PromptGuard) CheckRisk(ctx context.Context, userQuery string) bool {
 	if pg.client == nil {
 		log.Println("[PromptGuard] Client not initialized, skipping risk check")
 		return false
@@ -89,6 +93,10 @@ func (pg *PromptGuard) checkRisk(ctx context.Context, userQuery string) bool {
 		return false
 	}
 
+	if len(resp.Choices) == 0 {
+		log.Println("[PromptGuard] No choices in response")
+		return false
+	}
 	result := strings.TrimSpace(resp.Choices[0].Message.Content)
 	log.Printf("🛡️ Risk Model Response: %s\n", result)
 
@@ -153,7 +161,7 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 				// use independent timeout so we don't get canceled by srv.Context
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
-				if pg.checkRisk(ctx, prompt) {
+				if pg.CheckRisk(ctx, prompt) {
 					log.Println("[PromptGuard] Risky prompt detected, returning 403")
 
 					resp = &extProcPb.ProcessingResponse{
@@ -237,7 +245,7 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 				// use independent timeout so we don't get canceled by srv.Context
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
-				if pg.checkRisk(ctx, generated) {
+				if pg.CheckRisk(ctx, generated) {
 					log.Println("[PromptGuard] Risky LLM output detected, blocking response")
 					resp = &extProcPb.ProcessingResponse{
 						Response: &extProcPb.ProcessingResponse_ImmediateResponse{

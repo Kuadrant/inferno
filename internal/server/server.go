@@ -116,7 +116,7 @@ func (s *Server) startPromptGuardServer(ctx context.Context) error {
 	}
 
 	grpcServer := grpc.NewServer()
-	promptGuard := ext_proc.NewPromptGuard()
+	promptGuard := ext_proc.NewPromptGuard(nil)
 	extProcPb.RegisterExternalProcessorServer(grpcServer, promptGuard)
 	grpc_health_v1.RegisterHealthServer(grpcServer, &HealthServer{})
 
