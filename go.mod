@@ -5,7 +5,7 @@ go 1.23.0
 require (
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4
 	github.com/sashabaranov/go-openai v1.39.0
-	google.golang.org/grpc v1.72.0
+	google.golang.org/grpc v1.70.0
 	k8s.io/apimachinery v0.32.0
 
 )
