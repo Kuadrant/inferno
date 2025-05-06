@@ -26,7 +26,7 @@ else
 fi
 
 # Start the service
-./inferno
+docker compose up
 
 # Example testing commands (commented out)
 # 
