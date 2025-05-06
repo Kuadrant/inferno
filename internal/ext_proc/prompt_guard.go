@@ -3,6 +3,7 @@ package ext_proc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -17,6 +18,55 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+//  prompt parsing helpers
+
+// legacy `/v1/completions`
+func extractPromptFromCompletions(bodyMap map[string]interface{}) (string, bool) {
+	if p, ok := bodyMap["prompt"].(string); ok && p != "" {
+		return p, true
+	}
+	return "", false
+}
+
+// `/v1/chat/completions`
+func extractPromptFromChat(bodyMap map[string]interface{}) (string, bool) {
+	if msgs, ok := bodyMap["messages"].([]interface{}); ok {
+		var parts []string
+		for _, m := range msgs {
+			if mm, ok2 := m.(map[string]interface{}); ok2 {
+				if c, ok3 := mm["content"].(string); ok3 && c != "" {
+					parts = append(parts, c)
+				}
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, "\n"), true
+		}
+	}
+	return "", false
+}
+
+// `/v1/responses`
+func extractPromptFromResponses(bodyMap map[string]interface{}) (string, bool) {
+	if inp, ok := bodyMap["input"].(string); ok && inp != "" {
+		return inp, true
+	}
+	return "", false
+}
+
+func extractPrompt(bodyMap map[string]interface{}) (string, error) {
+	if p, ok := extractPromptFromCompletions(bodyMap); ok {
+		return p, nil
+	}
+	if p, ok := extractPromptFromChat(bodyMap); ok {
+		return p, nil
+	}
+	if p, ok := extractPromptFromResponses(bodyMap); ok {
+		return p, nil
+	}
+	return "", fmt.Errorf("no prompt found in request body")
+}
 
 // OpenAIChatCompleter defines the interface needed by PromptGuard
 type OpenAIChatCompleter interface {
@@ -142,12 +192,16 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 			log.Printf("[PromptGuard] Request body: %s", bodyStr)
 
 			var bodyMap map[string]interface{}
-			if err := json.Unmarshal([]byte(bodyStr), &bodyMap); err != nil {
+			if err := json.Unmarshal(r.RequestBody.Body, &bodyMap); err != nil {
 				log.Printf("[PromptGuard] Failed to parse request body: %v", err)
 				return status.Errorf(codes.InvalidArgument, "invalid request body: %v", err)
 			}
 
-			prompt, _ := bodyMap["prompt"].(string)
+			prompt, err := extractPrompt(bodyMap)
+			if err != nil {
+				log.Printf("[PromptGuard] %v", err)
+				return status.Errorf(codes.InvalidArgument, "%v", err)
+			}
 			log.Printf("[PromptGuard] Extracted prompt: %s", prompt)
 
 			if os.Getenv("DISABLE_PROMPT_RISK_CHECK") == "yes" {

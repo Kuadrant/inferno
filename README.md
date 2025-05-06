@@ -18,11 +18,7 @@ A service providing a suite of `ext_proc` services for LLM use-cases:
 Currently, we offer a way to run a demo version of the service, alongside a pre-configured Envoy instance.
 
 ```bash
-# Build and run the Go service
-go build
-./inferno
-
-# Or use docker-compose
+# Builds `inferno` and deploys Envoy & configures it to use inferno filter
 docker-compose up --build
 ```
 
@@ -73,6 +69,8 @@ curl "http://localhost:10000/v1/completions" \
 
 #### Chat completion
 
+Chat completions:
+
 ```bash
 curl "http://localhost:10000/v1/chat/completions" \
   -H "Content-Type: application/json" \
@@ -85,6 +83,19 @@ curl "http://localhost:10000/v1/chat/completions" \
           "content": "Write a one-sentence bedtime story about Kubernetes."
         }
       ]
+  }'
+```
+
+
+Responses:
+
+```bash
+curl http://localhost:10000/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "model": "gpt-4.1",
+    "input": "Tell me a three sentence bedtime story about Kubernetes."
   }'
 ```
 
