@@ -11,22 +11,9 @@ import (
 func main() {
 	cfg := server.DefaultConfig()
 
-	// default ports from environment variables if provided
-	if port := os.Getenv("SEMANTIC_CACHE_PORT"); port != "" {
+	if port := os.Getenv("EXT_PROC_PORT"); port != "" {
 		if p, err := strconv.Atoi(port); err == nil {
-			cfg.SemanticCachePort = p
-		}
-	}
-
-	if port := os.Getenv("PROMPT_GUARD_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
-			cfg.PromptGuardPort = p
-		}
-	}
-
-	if port := os.Getenv("TOKEN_METRICS_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
-			cfg.TokenMetricsPort = p
+			cfg.ExtProcPort = p
 		}
 	}
 
