@@ -25,7 +25,7 @@ services:
       context: ./
     environment:
       # Semantic Cache Settings
-      EMBEDDING_MODEL_SERVER: "${EMBEDDING_MODEL_SERVER:-http://192.168.97.4/v1/models/embedding-model:predict}"
+      EMBEDDING_MODEL_SERVER: "${EMBEDDING_MODEL_SERVER:-http://127.0.0.1/v1/models/embedding-model:predict}"
       EMBEDDING_MODEL_HOST: "${EMBEDDING_MODEL_HOST:-embedding-model-default.example.com}"
       SIMILARITY_THRESHOLD: "${SIMILARITY_THRESHOLD:-0.75}"
       
