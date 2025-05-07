@@ -22,6 +22,7 @@ import (
 //  prompt parsing helpers
 
 // legacy `/v1/completions`
+// ref: https://platform.openai.com/docs/api-reference/completions
 func extractPromptFromCompletions(bodyMap map[string]interface{}) (string, bool) {
 	if p, ok := bodyMap["prompt"].(string); ok && p != "" {
 		return p, true
@@ -30,6 +31,7 @@ func extractPromptFromCompletions(bodyMap map[string]interface{}) (string, bool)
 }
 
 // `/v1/chat/completions`
+// ref: https://platform.openai.com/docs/api-reference/chat/create
 func extractPromptFromChat(bodyMap map[string]interface{}) (string, bool) {
 	if msgs, ok := bodyMap["messages"].([]interface{}); ok {
 		var parts []string
@@ -48,6 +50,7 @@ func extractPromptFromChat(bodyMap map[string]interface{}) (string, bool) {
 }
 
 // `/v1/responses`
+// ref: https://platform.openai.com/docs/api-reference/responses
 func extractPromptFromResponses(bodyMap map[string]interface{}) (string, bool) {
 	if inp, ok := bodyMap["input"].(string); ok && inp != "" {
 		return inp, true
