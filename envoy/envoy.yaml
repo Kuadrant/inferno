@@ -49,6 +49,16 @@ static_resources:
                           #     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
                           #     disabled: true
                         - match:
+                            prefix: "/v1/responses"
+                          route:
+                            cluster: openai_api
+                            timeout: 30s
+                            host_rewrite_literal: "api.openai.com"
+                          # typed_per_filter_config:
+                          #   envoy.filters.http.ext_proc:
+                          #     "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute
+                          #     disabled: true
+                        - match:
                             prefix: "/v1/embeddings"
                           route:
                             cluster: openai_api
