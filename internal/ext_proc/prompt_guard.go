@@ -3,6 +3,7 @@ package ext_proc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -165,7 +166,7 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 			return nil
 		}
 		if err != nil {
-			if status.Code(err) == codes.Canceled {
+			if status.Code(err) == codes.Canceled || errors.Is(err, context.Canceled) {
 				log.Println("[PromptGuard] Stream cancelled, finishing up")
 				return nil
 			}
@@ -339,9 +340,15 @@ func (pg *PromptGuard) Process(srv extProcPb.ExternalProcessor_ProcessServer) er
 			resp = &extProcPb.ProcessingResponse{}
 		}
 
+		// Handle cases like ResponseBody EndOfStream=false
+		if resp == nil {
+			log.Println("[PromptGuard] Skipping Send for nil response")
+			continue
+		}
+
 		if err := srv.Send(resp); err != nil {
 			log.Printf("[PromptGuard] Error sending response: %v", err)
-			if status.Code(err) == codes.Canceled {
+			if status.Code(err) == codes.Canceled || errors.Is(err, context.Canceled) {
 				log.Println("[PromptGuard] Stream canceled, exiting cleanly")
 				return nil
 			}
