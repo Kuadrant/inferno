@@ -24,6 +24,9 @@ services:
     build:
       context: ./
     environment:
+      # ExtProc Port
+      EXT_PROC_PORT: "${EXT_PROC_PORT:-50051}"
+      
       # Semantic Cache Settings
       EMBEDDING_MODEL_SERVER: "${EMBEDDING_MODEL_SERVER:-http://127.0.0.1/v1/models/embedding-model:predict}"
       EMBEDDING_MODEL_HOST: "${EMBEDDING_MODEL_HOST:-embedding-model-default.example.com}"
@@ -35,9 +38,7 @@ services:
       DISABLE_PROMPT_RISK_CHECK: "${DISABLE_PROMPT_RISK_CHECK:-no}"
       DISABLE_RESPONSE_RISK_CHECK: "${DISABLE_RESPONSE_RISK_CHECK:-no}"
     expose:
-      - 50051 # semantic-cache
-      - 50052 # prompt-guard
-      - 50053 # token-usage-metrics
+      - 50051
     networks:
       - inferno-network
 

@@ -29,9 +29,7 @@ Later, we'll offer more options to deploy on Kubernetes, or as part of Kuadrant.
 The following environment variables can be configured:
 
 #### General Settings
-- `SEMANTIC_CACHE_PORT`: Port for the semantic cache ext_proc (default: 50051)
-- `PROMPT_GUARD_PORT`: Port for the prompt guard ext_proc (default: 50052)
-- `TOKEN_METRICS_PORT`: Port for the token metrics ext_proc (default: 50053)
+- `EXT_PROC_PORT`: Port for the ext_proc server (default: 50051)
 
 #### Semantic Cache Settings
 - `EMBEDDING_MODEL_SERVER`: URL for the embedding model server
