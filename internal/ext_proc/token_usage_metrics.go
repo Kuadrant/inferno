@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"log"
-	"sort"
 	"strconv"
 
 	configPb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -14,16 +13,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
-
-// Helper function to get and sort map keys for logging
-func getMapKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
 
 type TokenUsageMetrics struct {
 }
