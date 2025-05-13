@@ -7,11 +7,9 @@ import (
 	"io"
 	"log"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
-	configPb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	filterPb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	typeV3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
@@ -232,53 +230,18 @@ func (p *Processor) Process(srv extProcPb.ExternalProcessor_ProcessServer) error
 				p.prompts.Delete(requestID)
 			}
 
-			// process token metrics
-			var openAIResp struct {
-				Usage struct {
-					PromptTokens     int `json:"prompt_tokens"`
-					TotalTokens      int `json:"total_tokens"`
-					CompletionTokens int `json:"completion_tokens"`
-				} `json:"usage"`
-			}
+			// Process token metrics using the dedicated TokenUsageMetrics component
+			var processResp *extProcPb.ProcessingResponse
+			var metricsFound bool
 
-			if err := json.Unmarshal(r.ResponseBody.Body, &openAIResp); err == nil {
-				log.Printf("[Processor] Parsed token usage: %+v", openAIResp.Usage)
+			// Use the TokenUsageMetrics component to process the response body
+			processResp, metricsFound = p.tokenMetrics.ProcessResponseBody(r.ResponseBody.Body)
 
-				// create headers with token usage
-				headers := []*configPb.HeaderValueOption{
-					{
-						Header: &configPb.HeaderValue{
-							Key:      "x-kuadrant-openai-prompt-tokens",
-							RawValue: []byte(strconv.Itoa(openAIResp.Usage.PromptTokens)),
-						},
-					},
-					{
-						Header: &configPb.HeaderValue{
-							Key:      "x-kuadrant-openai-total-tokens",
-							RawValue: []byte(strconv.Itoa(openAIResp.Usage.TotalTokens)),
-						},
-					},
-					{
-						Header: &configPb.HeaderValue{
-							Key:      "x-kuadrant-openai-completion-tokens",
-							RawValue: []byte(strconv.Itoa(openAIResp.Usage.CompletionTokens)),
-						},
-					},
-				}
-
-				resp = &extProcPb.ProcessingResponse{
-					Response: &extProcPb.ProcessingResponse_ResponseBody{
-						ResponseBody: &extProcPb.BodyResponse{
-							Response: &extProcPb.CommonResponse{
-								HeaderMutation: &extProcPb.HeaderMutation{
-									SetHeaders: headers,
-								},
-							},
-						},
-					},
-				}
+			if metricsFound {
+				// Use the response with token usage headers
+				resp = processResp
 			} else {
-				// if we couldn't parse token metrics, just pass through
+				// If metrics weren't found, just pass through
 				resp = &extProcPb.ProcessingResponse{
 					Response: &extProcPb.ProcessingResponse_ResponseBody{
 						ResponseBody: &extProcPb.BodyResponse{},

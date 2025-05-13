@@ -20,6 +20,70 @@ func NewTokenUsageMetrics() *TokenUsageMetrics {
 	return &TokenUsageMetrics{}
 }
 
+// ProcessResponseBody extracts token usage metrics from the response body and returns appropriate headers
+// Returns a processing response with the token usage headers and a boolean indicating if metrics were found
+func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.ProcessingResponse, bool) {
+	log.Println("[TokenMetrics] Processing response body for token metrics")
+
+	// parse OpenAI-style usage metrics
+	var openAIResp struct {
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+
+	err := json.Unmarshal(body, &openAIResp)
+	if err != nil {
+		log.Printf("[TokenMetrics] Failed to unmarshal JSON for token metrics: %v", err)
+		return &extProcPb.ProcessingResponse{
+			Response: &extProcPb.ProcessingResponse_ResponseBody{
+				ResponseBody: &extProcPb.BodyResponse{},
+			},
+		}, false
+	}
+
+	log.Printf("[TokenMetrics] Successfully parsed usage metrics: %+v", openAIResp.Usage)
+
+	// Create headers with token usage information
+	headers := []*configPb.HeaderValueOption{
+		{
+			Header: &configPb.HeaderValue{
+				Key:      "x-kuadrant-openai-prompt-tokens",
+				RawValue: []byte(strconv.Itoa(openAIResp.Usage.PromptTokens)),
+			},
+		},
+		{
+			Header: &configPb.HeaderValue{
+				Key:      "x-kuadrant-openai-total-tokens",
+				RawValue: []byte(strconv.Itoa(openAIResp.Usage.TotalTokens)),
+			},
+		},
+		{
+			Header: &configPb.HeaderValue{
+				Key:      "x-kuadrant-openai-completion-tokens",
+				RawValue: []byte(strconv.Itoa(openAIResp.Usage.CompletionTokens)),
+			},
+		},
+	}
+
+	resp := &extProcPb.ProcessingResponse{
+		Response: &extProcPb.ProcessingResponse_ResponseBody{
+			ResponseBody: &extProcPb.BodyResponse{
+				Response: &extProcPb.CommonResponse{
+					HeaderMutation: &extProcPb.HeaderMutation{
+						SetHeaders: headers,
+					},
+				},
+			},
+		},
+	}
+
+	log.Printf("[TokenMetrics] ResponseBody processed and decorated with headers: %+v", headers)
+	return resp, true
+}
+
 func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	log.Println("[TokenMetrics] Starting processing loop")
 	for {
@@ -86,62 +150,21 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 				break
 			}
 
-			log.Println("[TokenMetrics] Received complete ResponseBody, attempting to parse JSON for usage metrics")
-			// parse OpenAI-style usage metrics
-			var openAIResp struct {
-				Usage struct {
-					PromptTokens     int `json:"prompt_tokens"`
-					TotalTokens      int `json:"total_tokens"`
-					CompletionTokens int `json:"completion_tokens"`
-				} `json:"usage"`
-			}
-			err := json.Unmarshal(rb.Body, &openAIResp)
-			if err != nil {
-				log.Printf("[TokenMetrics] Failed to unmarshal JSON: %v", err)
+			log.Println("[TokenMetrics] Received complete ResponseBody, using ProcessResponseBody method")
+
+			// Use the shared method to process the response body
+			var metricsFound bool
+			resp, metricsFound = tm.ProcessResponseBody(rb.Body)
+
+			if !metricsFound {
+				log.Println("[TokenMetrics] No metrics found in response, passing through")
 				resp = &extProcPb.ProcessingResponse{
 					Response: &extProcPb.ProcessingResponse_ResponseBody{
 						ResponseBody: &extProcPb.BodyResponse{},
 					},
 				}
-				break
 			}
-
-			log.Printf("[TokenMetrics] Successfully parsed usage metrics: %+v", openAIResp.Usage)
-
-			// decorate as headers
-			// send as RawValues (seems to encounter this issue otherwise: https://github.com/envoyproxy/envoy/issues/31555)
-			headers := []*configPb.HeaderValueOption{
-				{
-					Header: &configPb.HeaderValue{
-						Key:      "x-kuadrant-openai-prompt-tokens",
-						RawValue: []byte(strconv.Itoa(openAIResp.Usage.PromptTokens)),
-					},
-				},
-				{
-					Header: &configPb.HeaderValue{
-						Key:      "x-kuadrant-openai-total-tokens",
-						RawValue: []byte(strconv.Itoa(openAIResp.Usage.TotalTokens)),
-					},
-				},
-				{
-					Header: &configPb.HeaderValue{
-						Key:      "x-kuadrant-openai-completion-tokens",
-						RawValue: []byte(strconv.Itoa(openAIResp.Usage.CompletionTokens)),
-					},
-				},
-			}
-			resp = &extProcPb.ProcessingResponse{
-				Response: &extProcPb.ProcessingResponse_ResponseBody{
-					ResponseBody: &extProcPb.BodyResponse{
-						Response: &extProcPb.CommonResponse{
-							HeaderMutation: &extProcPb.HeaderMutation{
-								SetHeaders: headers,
-							},
-						},
-					},
-				},
-			}
-			log.Printf("[TokenMetrics] ResponseBody processed and decorated with headers: %+v", headers)
+			log.Printf("[TokenMetrics] ResponseBody processed: metrics found = %v", metricsFound)
 
 		default:
 			log.Printf("[TokenMetrics] Received unrecognized request type: %+v", r)
