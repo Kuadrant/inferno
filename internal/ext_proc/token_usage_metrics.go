@@ -20,8 +20,8 @@ func NewTokenUsageMetrics() *TokenUsageMetrics {
 	return &TokenUsageMetrics{}
 }
 
-// ProcessResponseBody extracts token usage metrics from the response body and returns appropriate headers
-// Returns a processing response with the token usage headers and a boolean indicating if metrics were found
+// extracts token usage metrics from the response body and returns appropriate headers
+// returns a processing response with the token usage headers and a boolean indicating if metrics were found
 func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.ProcessingResponse, bool) {
 	log.Println("[TokenMetrics] Processing response body for token metrics")
 

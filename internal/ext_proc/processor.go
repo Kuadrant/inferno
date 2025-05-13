@@ -230,18 +230,16 @@ func (p *Processor) Process(srv extProcPb.ExternalProcessor_ProcessServer) error
 				p.prompts.Delete(requestID)
 			}
 
-			// Process token metrics using the dedicated TokenUsageMetrics component
 			var processResp *extProcPb.ProcessingResponse
 			var metricsFound bool
 
-			// Use the TokenUsageMetrics component to process the response body
 			processResp, metricsFound = p.tokenMetrics.ProcessResponseBody(r.ResponseBody.Body)
 
 			if metricsFound {
-				// Use the response with token usage headers
+				// response with token usage headers
 				resp = processResp
 			} else {
-				// If metrics weren't found, just pass through
+				// metrics weren't found, just pass through
 				resp = &extProcPb.ProcessingResponse{
 					Response: &extProcPb.ProcessingResponse_ResponseBody{
 						ResponseBody: &extProcPb.BodyResponse{},
