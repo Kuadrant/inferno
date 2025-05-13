@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"sort"
 	"strconv"
 
 	configPb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -11,7 +12,18 @@ import (
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
+
+// Helper function to get and sort map keys for logging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 type TokenUsageMetrics struct {
 }
@@ -24,6 +36,38 @@ func NewTokenUsageMetrics() *TokenUsageMetrics {
 // returns a processing response with the token usage headers and a boolean indicating if metrics were found
 func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.ProcessingResponse, bool) {
 	log.Println("[TokenMetrics] Processing response body for token metrics")
+
+	// Check if the body contains valid JSON
+	if !json.Valid(body) {
+		log.Printf("[TokenMetrics] Response body is not valid JSON")
+		return &extProcPb.ProcessingResponse{
+			Response: &extProcPb.ProcessingResponse_ResponseBody{
+				ResponseBody: &extProcPb.BodyResponse{},
+			},
+		}, false
+	}
+
+	// try to unmarshal into a map to check for usage field existence
+	var responseMap map[string]interface{}
+	if err := json.Unmarshal(body, &responseMap); err != nil {
+		log.Printf("[TokenMetrics] Failed to unmarshal JSON: %v", err)
+		return &extProcPb.ProcessingResponse{
+			Response: &extProcPb.ProcessingResponse_ResponseBody{
+				ResponseBody: &extProcPb.BodyResponse{},
+			},
+		}, false
+	}
+
+	// usage field existence
+	_, exists := responseMap["usage"]
+	if !exists {
+		log.Printf("[TokenMetrics] No 'usage' field found in response")
+		return &extProcPb.ProcessingResponse{
+			Response: &extProcPb.ProcessingResponse_ResponseBody{
+				ResponseBody: &extProcPb.BodyResponse{},
+			},
+		}, false
+	}
 
 	// parse OpenAI-style usage metrics
 	var openAIResp struct {
@@ -44,30 +88,37 @@ func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.Proces
 		}, false
 	}
 
-	log.Printf("[TokenMetrics] Successfully parsed usage metrics: %+v", openAIResp.Usage)
+	// Create token count strings
+	promptTokens := strconv.Itoa(openAIResp.Usage.PromptTokens)
+	totalTokens := strconv.Itoa(openAIResp.Usage.TotalTokens)
+	completionTokens := strconv.Itoa(openAIResp.Usage.CompletionTokens)
 
 	// Create headers with token usage information
 	headers := []*configPb.HeaderValueOption{
 		{
 			Header: &configPb.HeaderValue{
-				Key:      "x-kuadrant-openai-prompt-tokens",
-				RawValue: []byte(strconv.Itoa(openAIResp.Usage.PromptTokens)),
+				Key:   "x-kuadrant-openai-prompt-tokens",
+				Value: promptTokens,
 			},
+			Append: wrapperspb.Bool(false),
 		},
 		{
 			Header: &configPb.HeaderValue{
-				Key:      "x-kuadrant-openai-total-tokens",
-				RawValue: []byte(strconv.Itoa(openAIResp.Usage.TotalTokens)),
+				Key:   "x-kuadrant-openai-total-tokens",
+				Value: totalTokens,
 			},
+			Append: wrapperspb.Bool(false),
 		},
 		{
 			Header: &configPb.HeaderValue{
-				Key:      "x-kuadrant-openai-completion-tokens",
-				RawValue: []byte(strconv.Itoa(openAIResp.Usage.CompletionTokens)),
+				Key:   "x-kuadrant-openai-completion-tokens",
+				Value: completionTokens,
 			},
+			Append: wrapperspb.Bool(false),
 		},
 	}
 
+	// create response with headers but preserve the body
 	resp := &extProcPb.ProcessingResponse{
 		Response: &extProcPb.ProcessingResponse_ResponseBody{
 			ResponseBody: &extProcPb.BodyResponse{
@@ -80,7 +131,7 @@ func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.Proces
 		},
 	}
 
-	log.Printf("[TokenMetrics] ResponseBody processed and decorated with headers: %+v", headers)
+	log.Printf("[TokenMetrics] ResponseBody processed and token headers added")
 	return resp, true
 }
 
@@ -150,8 +201,6 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 				break
 			}
 
-			log.Println("[TokenMetrics] Received complete ResponseBody, using ProcessResponseBody method")
-
 			// Use the shared method to process the response body
 			var metricsFound bool
 			resp, metricsFound = tm.ProcessResponseBody(rb.Body)
@@ -164,7 +213,6 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 					},
 				}
 			}
-			log.Printf("[TokenMetrics] ResponseBody processed: metrics found = %v", metricsFound)
 
 		default:
 			log.Printf("[TokenMetrics] Received unrecognized request type: %+v", r)
@@ -175,7 +223,7 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 			log.Printf("[TokenMetrics] Error sending response: %v", err)
 			return err
 		} else {
-			log.Printf("[TokenMetrics] Sent response: %+v", resp)
+			log.Printf("[TokenMetrics] Sent response")
 		}
 	}
 }
