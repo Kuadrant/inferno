@@ -42,6 +42,11 @@ The following environment variables can be configured:
 - `DISABLE_PROMPT_RISK_CHECK`: Set to "yes" to disable prompt risk checking
 - `DISABLE_RESPONSE_RISK_CHECK`: Set to "yes" to disable response risk checking
 
+#### API Endpoint Settings
+- `OPENAI_API_HOST`: Hostname for OpenAI API requests (default: api.openai.com)
+- `KSERVE_API_HOST`: Hostname/IP for KServe API requests (default: 192.168.97.4)
+- `KSERVE_API_HOST_HEADER`: Host header value for KServe API requests (default: huggingface-llm-default.example.com)
+
 ## Sample Requests
 
 ### OpenAI proxied requests
@@ -70,7 +75,7 @@ curl "http://localhost:10000/v1/completions" \
 Chat completions:
 
 ```bash
-curl "http://localhost:10000/v1/chat/completions" \
+curl -v "http://localhost:10000/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
   -d '{
@@ -88,7 +93,7 @@ curl "http://localhost:10000/v1/chat/completions" \
 Responses:
 
 ```bash
-curl http://localhost:10000/v1/responses \
+curl -v http://localhost:10000/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
   -d '{
@@ -109,9 +114,80 @@ curl http://localhost:10000/v1/embeddings \
   }'
 ```
 
-### kServe Huggingface Server
+### KServe Hugging Face LLM Runtime
 
-TODO
+Inferno supports KServe's Hugging Face LLM runtime API endpoints. These endpoints use the `/openai/v1/` prefix instead of `/v1/`. You can configure the KServe host using environment variables.
+
+#### Configuration
+
+You can set the following environment variables to configure the KServe integration, if running embedding and LLM models as inference services:
+
+```bash
+# Set the KServe destination address/IP (default: 192.168.97.4)
+export KSERVE_API_HOST=192.168.97.4
+
+# Set the KServe Host header separately (default: huggingface-llm-default.example.com)
+export KSERVE_API_HOST_HEADER=huggingface-llm-default.example.com
+
+export EMBEDDING_MODEL_SERVER=http://192.168.97.4/v1/models/embedding-model:predict
+
+# Optional: Set the KServe Host header (if different, otherwise don't export/leave blank)
+# export EMBEDDING_MODEL_HOST="embedding-model-default.example.com"
+
+
+# or set these dynamically, for example:
+export KSERVE_API_HOST="$(kubectl get gateway -n kserve kserve-ingress-gateway -o jsonpath='{.status.addresses[0].value}')"
+export KSERVE_API_HOST_HEADER="$(kubectl get inferenceservice huggingface-llm -o jsonpath='{.status.url}' | cut -d '/' -f 3)"
+export EMBEDDING_MODEL_SERVER="http://$(kubectl get gateway -n kserve kserve-ingress-gateway -o jsonpath='{.status.addresses[0].value}')/v1/models/embedding-model:predict"
+export EMBEDDING_MODEL_HOST="$(kubectl get inferenceservice embedding-model -o jsonpath='{.status.url}' | cut -d '/' -f 3)"
+
+
+# Start Inferno with the KServe configuration
+docker-compose up --build
+```
+
+**Note:** KServe's Huggingface LLM runtime expects requests at `/openai/v1/...` paths, not `/v1/...` paths - `inferno` preserves these paths and does not rewrite them.
+
+With this configuration, you can make simplified requests to your local Inferno instance:
+
+```bash
+# Without needing to specify the Host header in each request
+curl -v http://localhost:10000/openai/v1/completions \
+  -H "content-type: application/json" \
+  -d '{"model": "llm", "prompt": "What is Kubernetes", "stream": false, "max_tokens": 50}'
+```
+
+#### Completions
+
+```bash
+curl -v http://localhost:10000/openai/v1/completions \
+  -H "content-type: application/json" \
+  -d '{"model": "llm", "prompt": "What is Kubernetes", "stream": false, "max_tokens": 50}'
+```
+
+#### Chat Completions
+
+```bash
+curl -v "http://localhost:10000/openai/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+      "model": "llm",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are an assistant that knows everything about Kubernetes."
+        },
+        {
+          "role": "user",
+          "content": "What is Kubernetes"
+        }
+      ],
+      "max_tokens": 30,
+      "stream": false
+  }'
+```
+
+The responses from the KServe Hugginfface LLM server follow the OpenAI-style APIs, and include token usage metrics that Inferno will extract and add as headers in responses.
 
 ### Semantic Cache
 
