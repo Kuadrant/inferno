@@ -230,6 +230,7 @@ func (p *Processor) Process(srv extProcPb.ExternalProcessor_ProcessServer) error
 				p.prompts.Delete(requestID)
 			}
 
+			// process token usage metrics for both OpenAI, and OpenAI-style kServe huggingface chat completion responses
 			var processResp *extProcPb.ProcessingResponse
 			var metricsFound bool
 
