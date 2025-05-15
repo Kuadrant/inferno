@@ -171,7 +171,35 @@ func (sc *SemanticCache) Process(srv extProcPb.ExternalProcessor_ProcessServer) 
 							log.Printf("[SemanticCache] Best candidate: %s with similarity=%.3f (threshold=%.3f)", e.Prompt, sim, sc.similarityThreshold)
 							if sim >= sc.similarityThreshold && e.Response != nil {
 								log.Printf("[SemanticCache] similarity %.3f >= threshold %.3f; cache HIT", sim, sc.similarityThreshold)
-								srv.Send(&extProcPb.ProcessingResponse{Response: &extProcPb.ProcessingResponse_ImmediateResponse{ImmediateResponse: &extProcPb.ImmediateResponse{Status: &typeV3.HttpStatus{Code: 200}, Body: e.Response}}})
+
+								// extract token metrics headers from cached response
+								headers := ExtractTokenMetricsHeaders(e.Response)
+
+								if headers != nil {
+									log.Printf("[SemanticCache] Found token metrics in cached response")
+									// return cached response with token metrics headers
+									srv.Send(&extProcPb.ProcessingResponse{
+										Response: &extProcPb.ProcessingResponse_ImmediateResponse{
+											ImmediateResponse: &extProcPb.ImmediateResponse{
+												Status: &typeV3.HttpStatus{Code: 200},
+												Body:   e.Response,
+												Headers: &extProcPb.HeaderMutation{
+													SetHeaders: headers,
+												},
+											},
+										},
+									})
+								} else {
+									// no metrics found, return cached response as-is
+									srv.Send(&extProcPb.ProcessingResponse{
+										Response: &extProcPb.ProcessingResponse_ImmediateResponse{
+											ImmediateResponse: &extProcPb.ImmediateResponse{
+												Status: &typeV3.HttpStatus{Code: 200},
+												Body:   e.Response,
+											},
+										},
+									})
+								}
 								continue
 							} else {
 								log.Printf("[SemanticCache] similarity %.3f < threshold %.3f; no cache hit", sim, sc.similarityThreshold)

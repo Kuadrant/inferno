@@ -75,7 +75,7 @@ curl "http://localhost:10000/v1/completions" \
 Chat completions:
 
 ```bash
-curl "http://localhost:10000/v1/chat/completions" \
+curl -v "http://localhost:10000/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
   -d '{
@@ -93,7 +93,7 @@ curl "http://localhost:10000/v1/chat/completions" \
 Responses:
 
 ```bash
-curl http://localhost:10000/v1/responses \
+curl -v http://localhost:10000/v1/responses \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
   -d '{
@@ -152,7 +152,7 @@ With this configuration, you can make simplified requests to your local Inferno 
 
 ```bash
 # Without needing to specify the Host header in each request
-curl http://localhost:10000/openai/v1/completions \
+curl -v http://localhost:10000/openai/v1/completions \
   -H "content-type: application/json" \
   -d '{"model": "llm", "prompt": "What is Kubernetes", "stream": false, "max_tokens": 50}'
 ```

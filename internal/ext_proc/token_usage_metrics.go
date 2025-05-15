@@ -21,6 +21,26 @@ func NewTokenUsageMetrics() *TokenUsageMetrics {
 	return &TokenUsageMetrics{}
 }
 
+// ExtractTokenMetricsHeaders processes a response body for token usage metrics
+// and returns the headers if found, or nil if no metrics were found
+func ExtractTokenMetricsHeaders(responseBody []byte) []*configPb.HeaderValueOption {
+	tm := &TokenUsageMetrics{}
+	metricsResp, metricsFound := tm.ProcessResponseBody(responseBody)
+	
+	if !metricsFound {
+		return nil
+	}
+	
+	// Extract headers from token metrics response
+	if respBody, ok := metricsResp.Response.(*extProcPb.ProcessingResponse_ResponseBody); ok {
+		if respBody.ResponseBody.Response != nil && respBody.ResponseBody.Response.HeaderMutation != nil {
+			return respBody.ResponseBody.Response.HeaderMutation.SetHeaders
+		}
+	}
+	
+	return nil
+}
+
 // extracts token usage metrics from the response body and returns appropriate headers
 // returns a processing response with the token usage headers and a boolean indicating if metrics were found
 func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.ProcessingResponse, bool) {
