@@ -1,3 +1,16 @@
+#!/bin/sh
+set -e
+
+# Default values
+OPENAI_API_HOST=${OPENAI_API_HOST:-api.openai.com}
+KSERVE_API_HOST=${KSERVE_API_HOST:-192.168.97.4}
+KSERVE_API_HOST_HEADER=${KSERVE_API_HOST_HEADER:-huggingface-llm-default.example.com}
+
+# Make sure the directory exists
+mkdir -p /etc/envoy
+
+# Create a templated config file
+cat > /etc/envoy/envoy.yaml << EOF
 admin:
   access_log_path: /tmp/admin_access.log
   address:
@@ -23,35 +36,50 @@ static_resources:
                 generate_request_id: true
                 codec_type: AUTO
                 route_config:
-                  name: local_to_openai
+                  name: local_routes
                   virtual_hosts:
-                    - name: openai_proxy
+                    - name: api_proxy
                       domains: ["*"]
                       routes:
+                        # Standard OpenAI API endpoints
                         - match:
                             prefix: "/v1/completions"
                           route:
                             cluster: openai_api
                             timeout: 30s
-                            host_rewrite_literal: "api.openai.com"
+                            host_rewrite_literal: "${OPENAI_API_HOST}"
                         - match:
                             prefix: "/v1/chat/completions"
                           route:
                             cluster: openai_api
                             timeout: 30s
-                            host_rewrite_literal: "api.openai.com"
+                            host_rewrite_literal: "${OPENAI_API_HOST}"
                         - match:
                             prefix: "/v1/responses"
                           route:
                             cluster: openai_api
                             timeout: 30s
-                            host_rewrite_literal: "api.openai.com"
+                            host_rewrite_literal: "${OPENAI_API_HOST}"
                         - match:
                             prefix: "/v1/embeddings"
                           route:
                             cluster: openai_api
                             timeout: 30s
-                            host_rewrite_literal: "api.openai.com"
+                            host_rewrite_literal: "${OPENAI_API_HOST}"
+                        
+                        # KServe Hugging Face LLM runtime endpoints
+                        - match:
+                            prefix: "/openai/v1/completions"
+                          route:
+                            cluster: kserve_api
+                            timeout: 30s
+                            host_rewrite_literal: "${KSERVE_API_HOST_HEADER}"
+                        - match:
+                            prefix: "/openai/v1/chat/completions"
+                          route:
+                            cluster: kserve_api
+                            timeout: 30s
+                            host_rewrite_literal: "${KSERVE_API_HOST_HEADER}"
                 http_filters:
                   - name: envoy.filters.http.ext_proc
                     typed_config:
@@ -84,10 +112,28 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: api.openai.com
+                      address: ${OPENAI_API_HOST}
                       port_value: 443
       transport_socket:
         name: envoy.transport_sockets.tls
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-          sni: api.openai.com
+          sni: ${OPENAI_API_HOST}
+    
+    - name: kserve_api
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: kserve_api
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: ${KSERVE_API_HOST}
+                      port_value: 80
+EOF
+
+# Execute Envoy with the generated config
+exec /usr/local/bin/envoy --config-path /etc/envoy/envoy.yaml "$@"

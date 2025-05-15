@@ -1,12 +1,10 @@
 package ext_proc
 
 import (
-	"bytes"
 	"encoding/json"
 	"io"
 	"log"
 	"math"
-	"net/http"
 	"os"
 	"strconv"
 	"sync"
@@ -133,33 +131,10 @@ func (sc *SemanticCache) Process(srv extProcPb.ExternalProcessor_ProcessServer) 
 						emb = v.([]float64)
 						log.Println("[SemanticCache] Exact match cache hit for embedding")
 					} else if sc.embeddingServerURL != "" {
-						log.Println("[SemanticCache] Cache miss, fetching embedding from", sc.embeddingServerURL)
-						reqMap := map[string]interface{}{"instances": []string{prompt}}
-						data, _ := json.Marshal(reqMap)
-						client := &http.Client{Timeout: 10 * time.Second}
-						httpReq, err := http.NewRequest("POST", sc.embeddingServerURL, bytes.NewReader(data))
-						if err != nil {
-							log.Printf("[SemanticCache] HTTP request err: %v", err)
-						} else {
-							httpReq.Header.Set("Content-Type", "application/json")
-							if sc.embeddingModelHost != "" {
-								httpReq.Host = sc.embeddingModelHost
-								log.Printf("[SemanticCache] Set Host header: %s", sc.embeddingModelHost)
-							}
-							httpResp, err := client.Do(httpReq)
-							if err != nil {
-								log.Printf("[SemanticCache] Fetch embedding err: %v", err)
-							} else {
-								log.Printf("[SemanticCache] Embedding responded: %s", httpResp.Status)
-								b, _ := io.ReadAll(httpResp.Body)
-								httpResp.Body.Close()
-								var o struct{ Predictions [][]float64 }
-								if json.Unmarshal(b, &o) == nil && len(o.Predictions) > 0 {
-									emb = o.Predictions[0]
-									sc.embeddingCache.Store(prompt, emb)
-									log.Printf("[SemanticCache] Stored new embedding len=%d", len(emb))
-								}
-							}
+						emb = fetchEmbedding(sc.embeddingServerURL, sc.embeddingModelHost, prompt)
+						if emb != nil {
+							sc.embeddingCache.Store(prompt, emb)
+							log.Printf("[SemanticCache] Stored new embedding len=%d", len(emb))
 						}
 					}
 
@@ -171,7 +146,35 @@ func (sc *SemanticCache) Process(srv extProcPb.ExternalProcessor_ProcessServer) 
 							log.Printf("[SemanticCache] Best candidate: %s with similarity=%.3f (threshold=%.3f)", e.Prompt, sim, sc.similarityThreshold)
 							if sim >= sc.similarityThreshold && e.Response != nil {
 								log.Printf("[SemanticCache] similarity %.3f >= threshold %.3f; cache HIT", sim, sc.similarityThreshold)
-								srv.Send(&extProcPb.ProcessingResponse{Response: &extProcPb.ProcessingResponse_ImmediateResponse{ImmediateResponse: &extProcPb.ImmediateResponse{Status: &typeV3.HttpStatus{Code: 200}, Body: e.Response}}})
+
+								// extract token metrics headers from cached response
+								headers := ExtractTokenMetricsHeaders(e.Response)
+
+								if headers != nil {
+									log.Printf("[SemanticCache] Found token metrics in cached response")
+									// return cached response with token metrics headers
+									srv.Send(&extProcPb.ProcessingResponse{
+										Response: &extProcPb.ProcessingResponse_ImmediateResponse{
+											ImmediateResponse: &extProcPb.ImmediateResponse{
+												Status: &typeV3.HttpStatus{Code: 200},
+												Body:   e.Response,
+												Headers: &extProcPb.HeaderMutation{
+													SetHeaders: headers,
+												},
+											},
+										},
+									})
+								} else {
+									// no metrics found, return cached response as-is
+									srv.Send(&extProcPb.ProcessingResponse{
+										Response: &extProcPb.ProcessingResponse_ImmediateResponse{
+											ImmediateResponse: &extProcPb.ImmediateResponse{
+												Status: &typeV3.HttpStatus{Code: 200},
+												Body:   e.Response,
+											},
+										},
+									})
+								}
 								continue
 							} else {
 								log.Printf("[SemanticCache] similarity %.3f < threshold %.3f; no cache hit", sim, sc.similarityThreshold)

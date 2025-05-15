@@ -37,36 +37,58 @@ func createForbiddenResponse(message string) *extProcPb.ProcessingResponse {
 }
 
 func fetchEmbedding(embeddingServerURL, embeddingModelHost, prompt string) []float64 {
-	log.Println("[Processor] Cache miss, fetching embedding from", embeddingServerURL)
+	log.Printf("[SemanticCache] Cache miss, fetching embedding from %s", embeddingServerURL)
 	reqMap := map[string]interface{}{"instances": []string{prompt}}
 	data, _ := json.Marshal(reqMap)
+
 	client := &http.Client{Timeout: 10 * time.Second}
 	httpReq, err := http.NewRequest("POST", embeddingServerURL, bytes.NewReader(data))
 	if err != nil {
-		log.Printf("[Processor] HTTP request err: %v", err)
+		log.Printf("[SemanticCache] HTTP request creation err: %v", err)
 		return nil
+	}
+
+	if embeddingModelHost != "" {
+		httpReq.Host = embeddingModelHost
+		log.Printf("[SemanticCache] Set Host header: %s", embeddingModelHost)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	if embeddingModelHost != "" {
-		httpReq.Host = embeddingModelHost
-		log.Printf("[Processor] Set Host header: %s", embeddingModelHost)
-	}
+
+	// cURL req for reproducing
+	log.Printf("[SemanticCache] curl -X %s '%s' -H 'Host: %s' -H 'Content-Type: application/json' --data '%s'",
+		httpReq.Method, httpReq.URL.String(), httpReq.Host, string(data))
 
 	httpResp, err := client.Do(httpReq)
+
 	if err != nil {
-		log.Printf("[Processor] Fetch embedding err: %v", err)
+		log.Printf("[SemanticCache][ERROR] Fetch embedding err: %v", err)
+		return nil
+	}
+	defer httpResp.Body.Close()
+
+	log.Printf("[SemanticCache] Embedding responded: %s", httpResp.Status)
+
+	if httpResp.StatusCode != http.StatusOK {
+		log.Printf("[SemanticCache] Unexpected status code: %d", httpResp.StatusCode)
+		if allow := httpResp.Header.Get("Allow"); allow != "" {
+			log.Printf("[SemanticCache] Allowed methods: %s", allow)
+		}
+	}
+
+	b, _ := io.ReadAll(httpResp.Body)
+	log.Printf("[SemanticCache] Response body (%d bytes): %s", len(b), string(b))
+
+	var o struct{ Predictions [][]float64 }
+	if err := json.Unmarshal(b, &o); err != nil {
+		log.Printf("[SemanticCache][ERROR] JSON unmarshal err: %v", err)
+		return nil
+	}
+	if len(o.Predictions) == 0 {
+		log.Println("[SemanticCache] No predictions found in response")
 		return nil
 	}
 
-	log.Printf("[Processor] Embedding responded: %s", httpResp.Status)
-	b, _ := io.ReadAll(httpResp.Body)
-	httpResp.Body.Close()
-
-	var o struct{ Predictions [][]float64 }
-	if json.Unmarshal(b, &o) == nil && len(o.Predictions) > 0 {
-		return o.Predictions[0]
-	}
-
-	return nil
+	emb := o.Predictions[0]
+	return emb
 }
