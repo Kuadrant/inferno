@@ -135,14 +135,33 @@ func (p *Processor) Process(srv extProcPb.ExternalProcessor_ProcessServer) error
 				if e != nil && sim >= p.semanticCache.similarityThreshold && e.Response != nil {
 					log.Printf("[Processor] Semantic cache hit with similarity %.3f", sim)
 
-					// return cached response
-					resp = &extProcPb.ProcessingResponse{
-						Response: &extProcPb.ProcessingResponse_ImmediateResponse{
-							ImmediateResponse: &extProcPb.ImmediateResponse{
-								Status: &typeV3.HttpStatus{Code: 200},
-								Body:   e.Response,
+					// extract token metrics headers from cached response
+					headers := ExtractTokenMetricsHeaders(e.Response)
+
+					if headers != nil {
+						log.Printf("[Processor] Found token metrics in cached response")
+						// return cached response with token metrics headers
+						resp = &extProcPb.ProcessingResponse{
+							Response: &extProcPb.ProcessingResponse_ImmediateResponse{
+								ImmediateResponse: &extProcPb.ImmediateResponse{
+									Status: &typeV3.HttpStatus{Code: 200},
+									Body:   e.Response,
+									Headers: &extProcPb.HeaderMutation{
+										SetHeaders: headers,
+									},
+								},
 							},
-						},
+						}
+					} else {
+						// no metrics found, return cached response as-is
+						resp = &extProcPb.ProcessingResponse{
+							Response: &extProcPb.ProcessingResponse_ImmediateResponse{
+								ImmediateResponse: &extProcPb.ImmediateResponse{
+									Status: &typeV3.HttpStatus{Code: 200},
+									Body:   e.Response,
+								},
+							},
+						}
 					}
 					break
 				}
@@ -230,6 +249,7 @@ func (p *Processor) Process(srv extProcPb.ExternalProcessor_ProcessServer) error
 				p.prompts.Delete(requestID)
 			}
 
+			// process token usage metrics for both OpenAI, and OpenAI-style kServe huggingface chat completion responses
 			var processResp *extProcPb.ProcessingResponse
 			var metricsFound bool
 

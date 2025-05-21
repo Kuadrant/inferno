@@ -21,12 +21,31 @@ func NewTokenUsageMetrics() *TokenUsageMetrics {
 	return &TokenUsageMetrics{}
 }
 
+// ExtractTokenMetricsHeaders processes a response body for token usage metrics
+// and returns the headers if found, or nil if no metrics were found
+func ExtractTokenMetricsHeaders(responseBody []byte) []*configPb.HeaderValueOption {
+	tm := &TokenUsageMetrics{}
+	metricsResp, metricsFound := tm.ProcessResponseBody(responseBody)
+	
+	if !metricsFound {
+		return nil
+	}
+	
+	// Extract headers from token metrics response
+	if respBody, ok := metricsResp.Response.(*extProcPb.ProcessingResponse_ResponseBody); ok {
+		if respBody.ResponseBody.Response != nil && respBody.ResponseBody.Response.HeaderMutation != nil {
+			return respBody.ResponseBody.Response.HeaderMutation.SetHeaders
+		}
+	}
+	
+	return nil
+}
+
 // extracts token usage metrics from the response body and returns appropriate headers
 // returns a processing response with the token usage headers and a boolean indicating if metrics were found
 func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.ProcessingResponse, bool) {
-	log.Println("[TokenMetrics] Processing response body for token metrics")
+	log.Println("[TokenMetrics] Processing response body")
 
-	// Check if the body contains valid JSON
 	if !json.Valid(body) {
 		log.Printf("[TokenMetrics] Response body is not valid JSON")
 		return &extProcPb.ProcessingResponse{
@@ -77,12 +96,11 @@ func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.Proces
 		}, false
 	}
 
-	// Create token count strings
 	promptTokens := strconv.Itoa(openAIResp.Usage.PromptTokens)
 	totalTokens := strconv.Itoa(openAIResp.Usage.TotalTokens)
 	completionTokens := strconv.Itoa(openAIResp.Usage.CompletionTokens)
 
-	// Create headers with token usage information
+	// headers with token usage
 	headers := []*configPb.HeaderValueOption{
 		{
 			Header: &configPb.HeaderValue{
@@ -120,7 +138,8 @@ func (tm *TokenUsageMetrics) ProcessResponseBody(body []byte) (*extProcPb.Proces
 		},
 	}
 
-	log.Printf("[TokenMetrics] ResponseBody processed and token headers added")
+	log.Printf("[TokenMetrics] Added token headers: prompt=%s, completion=%s, total=%s",
+		promptTokens, completionTokens, totalTokens)
 	return resp, true
 }
 
@@ -143,27 +162,22 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 
 		switch r := req.Request.(type) {
 		case *extProcPb.ProcessingRequest_RequestHeaders:
-			log.Println("[TokenMetrics] Processing RequestHeaders")
 			// pass through headers untouched
 			resp = &extProcPb.ProcessingResponse{
 				Response: &extProcPb.ProcessingResponse_RequestHeaders{
 					RequestHeaders: &extProcPb.HeadersResponse{},
 				},
 			}
-			log.Println("[TokenMetrics] RequestHeaders processed, passing through response unchanged")
 
 		case *extProcPb.ProcessingRequest_RequestBody:
-			log.Println("[TokenMetrics] Processing RequestBody")
 			// pass body untouched
 			resp = &extProcPb.ProcessingResponse{
 				Response: &extProcPb.ProcessingResponse_RequestBody{
 					RequestBody: &extProcPb.BodyResponse{},
 				},
 			}
-			log.Println("[TokenMetrics] RequestBody processed, passing through response unchanged")
 
 		case *extProcPb.ProcessingRequest_ResponseHeaders:
-			log.Println("[TokenMetrics] Processing ResponseHeaders, instructing Envoy to buffer response body")
 			// buffer the response body
 			resp = &extProcPb.ProcessingResponse{
 				Response: &extProcPb.ProcessingResponse_ResponseHeaders{
@@ -174,14 +188,10 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 					ResponseBodyMode:   filterPb.ProcessingMode_BUFFERED,
 				},
 			}
-			log.Println("[TokenMetrics] ResponseHeaders processed, buffering response body")
 
 		case *extProcPb.ProcessingRequest_ResponseBody:
-			log.Println("[TokenMetrics] Processing ResponseBody")
 			rb := r.ResponseBody
-			log.Printf("[TokenMetrics] ResponseBody received, EndOfStream: %v", rb.EndOfStream)
 			if !rb.EndOfStream {
-				log.Println("[TokenMetrics] ResponseBody not complete, continuing to buffer")
 				resp = &extProcPb.ProcessingResponse{
 					Response: &extProcPb.ProcessingResponse_ResponseBody{
 						ResponseBody: &extProcPb.BodyResponse{},
@@ -195,7 +205,6 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 			resp, metricsFound = tm.ProcessResponseBody(rb.Body)
 
 			if !metricsFound {
-				log.Println("[TokenMetrics] No metrics found in response, passing through")
 				resp = &extProcPb.ProcessingResponse{
 					Response: &extProcPb.ProcessingResponse_ResponseBody{
 						ResponseBody: &extProcPb.BodyResponse{},
@@ -204,15 +213,13 @@ func (tm *TokenUsageMetrics) Process(srv extProcPb.ExternalProcessor_ProcessServ
 			}
 
 		default:
-			log.Printf("[TokenMetrics] Received unrecognized request type: %+v", r)
+			log.Printf("[TokenMetrics] Received unrecognized request type: %T", r)
 			resp = &extProcPb.ProcessingResponse{}
 		}
 
 		if err := srv.Send(resp); err != nil {
 			log.Printf("[TokenMetrics] Error sending response: %v", err)
 			return err
-		} else {
-			log.Printf("[TokenMetrics] Sent response")
 		}
 	}
 }
